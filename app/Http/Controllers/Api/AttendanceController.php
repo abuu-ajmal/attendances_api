@@ -7,48 +7,80 @@ use App\Http\Requests\StoreAttendanceRequest;
 use App\Models\AttendanceRecord;
 use App\Services\AttendanceService;
 use App\Services\ScopeService;
+use App\Services\AttendanceWarningService;
 use App\Services\AuditLogService;
 use Illuminate\Http\Request;
 
 class AttendanceController extends Controller
 {
-    public function __construct(
-        protected AttendanceService $attendanceService,
-        protected ScopeService $scopeService,
-        protected AuditLogService $auditLogService
-    ) {}
+   public function __construct(
+    protected AttendanceService $attendanceService,
+    protected ScopeService $scopeService,
+    protected AuditLogService $auditLogService,
+    protected AttendanceWarningService $attendanceWarningService
+) {}
 
-    public function store(StoreAttendanceRequest $request)
-    {
+      public function store(
+        StoreAttendanceRequest $request
+    ): JsonResponse {
+
         try {
 
-            $attendance = $this->attendanceService->record(
+            $result = $this->attendanceService->record(
+
                 user: $request->user(),
+
                 type: $request->type,
+
                 occurredAt: $request->occurred_at,
+
                 latitude: $request->latitude,
+
                 longitude: $request->longitude,
+
                 accuracy: $request->accuracy,
+
                 photo: $request->file('photo'),
+
                 deviceId: $request->device_id,
+
                 remarks: $request->remarks,
+
                 uuid: $request->uuid,
             );
 
+            $attendance = $result['attendance'];
+
+            $created = $result['created'];
+
             return response()->json([
+
                 'success' => true,
-                'message' => 'Attendance recorded successfully.',
-                'data' => $attendance->load('employee'),
-            ], 201);
+
+                'message' => $created
+                    ? 'Attendance recorded successfully.'
+                    : 'Attendance already synchronized.',
+
+                'created' => $created,
+
+                'data' => $attendance,
+
+            ], $created ? 201 : 200);
 
         } catch (\Throwable $e) {
 
+            report($e);
+
             return response()->json([
+
                 'success' => false,
+
                 'message' => $e->getMessage(),
+
             ], 422);
         }
     }
+
 
     public function myAttendance(Request $request)
     {
@@ -145,4 +177,35 @@ class AttendanceController extends Controller
             ),
     ]);
 }
+//warning function
+public function myWarning(Request $request)
+{
+    $employee = $request->user()->employee;
+
+    if (!$employee) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Employee profile not found.',
+        ], 404);
+    }
+
+    try {
+
+        $warning = $this->attendanceWarningService
+            ->getWarning($employee);
+
+        return response()->json([
+            'success' => true,
+            'data' => $warning,
+        ]);
+
+    } catch (\Throwable $e) {
+
+        return response()->json([
+            'success' => false,
+            'message' => $e->getMessage(),
+        ], 500);
+    }
+}
+
 }

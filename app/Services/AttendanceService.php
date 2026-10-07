@@ -1,18 +1,22 @@
 <?php
-
 namespace App\Services;
 
 use App\Models\AttendanceRecord;
-use App\Models\Employee;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Carbon\Carbon;
 
 class AttendanceService
 {
+    /**
+     * Record attendance.
+     *
+     * Used by both:
+     * - Online attendance
+     * - Offline attendance synchronized later
+     */
     public function record(
         User $user,
         string $type,
@@ -24,7 +28,13 @@ class AttendanceService
         ?string $deviceId = null,
         ?string $remarks = null,
         ?string $uuid = null
-    ): AttendanceRecord {
+    ): array {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Find employee
+        |--------------------------------------------------------------------------
+        */
 
         $employee = $user->employee;
 
@@ -34,37 +44,81 @@ class AttendanceService
             );
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Employee status
+        |--------------------------------------------------------------------------
+        */
+
         if ($employee->employment_status !== 'active') {
             throw new \Exception(
                 'Employee is not active.'
             );
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Validate attendance type
+        |--------------------------------------------------------------------------
+        */
+
+        if (!in_array($type, ['check_in', 'check_out'], true)) {
+            throw new \Exception(
+                'Invalid attendance type.'
+            );
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | UUID
+        |--------------------------------------------------------------------------
+        |
+        | Flutter creates this UUID when the attendance is created.
+        | Laravel uses it for idempotency.
+        |
+        */
+
         $uuid = $uuid ?: (string) Str::uuid();
 
         /*
         |--------------------------------------------------------------------------
-        | Idempotency
+        | Idempotency check
         |--------------------------------------------------------------------------
+        |
+        | If Flutter retries the same offline record, we don't create
+        | another database record.
+        |
         */
 
-        $existing = AttendanceRecord::where(
-            'uuid',
-            $uuid
-        )->first();
+        $existing = AttendanceRecord::query()
+            ->where('uuid', $uuid)
+            ->first();
 
         if ($existing) {
-            return $existing;
+            return [
+                'attendance' => $existing->load('employee'),
+                'created' => false,
+            ];
         }
-
-        $date = Carbon::parse($occurredAt)
-            ->timezone('Africa/Dar_es_Salaam')
-            ->toDateString();
 
         /*
         |--------------------------------------------------------------------------
-        | Check duplicate attendance
+        | Convert occurrence time to Tanzania timezone
         |--------------------------------------------------------------------------
+        */
+
+        $occurredAtTz = Carbon::parse($occurredAt)
+            ->timezone('Africa/Dar_es_Salaam');
+
+        $date = $occurredAtTz->toDateString();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Duplicate check
+        |--------------------------------------------------------------------------
+        |
+        | One check-in and one check-out per employee per day.
+        |
         */
 
         $alreadyRecorded = AttendanceRecord::query()
@@ -81,7 +135,7 @@ class AttendanceService
 
         /*
         |--------------------------------------------------------------------------
-        | Check-in / Check-out sequence
+        | Check-out requires check-in
         |--------------------------------------------------------------------------
         */
 
@@ -102,63 +156,116 @@ class AttendanceService
 
         /*
         |--------------------------------------------------------------------------
-        | Photo
+        | Database transaction
         |--------------------------------------------------------------------------
         */
 
-        $photoPath = null;
-
-        if ($photo) {
-
-            $photoPath = $photo->store(
-                'attendance/photos',
-                'local'
-            );
-        }
-
-        /*
-        |--------------------------------------------------------------------------
-        | Save
-        |--------------------------------------------------------------------------
-        */
-
-        return DB::transaction(function () use (
+        $result = DB::transaction(function () use (
             $uuid,
             $employee,
             $type,
-            $occurredAt,
+            $occurredAtTz,
             $latitude,
             $longitude,
             $accuracy,
-            $photoPath,
+            $photo,
             $deviceId,
             $remarks
         ) {
 
-            return AttendanceRecord::create([
+            /*
+            |--------------------------------------------------------------------------
+            | Check UUID again inside transaction
+            |--------------------------------------------------------------------------
+            */
+
+            $existing = AttendanceRecord::query()
+                ->where('uuid', $uuid)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existing) {
+                return [
+                    'attendance' => $existing,
+                    'created' => false,
+                ];
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Store photo
+            |--------------------------------------------------------------------------
+            */
+
+            $photoPath = null;
+
+            if ($photo) {
+
+                $photoPath = $photo->store(
+                    'attendances/photos',
+                    'public'
+                );
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Create attendance
+            |--------------------------------------------------------------------------
+            */
+
+            $attendance = AttendanceRecord::create([
+
                 'uuid' => $uuid,
+
                 'employee_id' => $employee->id,
+
                 'type' => $type,
-                'occurred_at' => Carbon::parse(
-                    $occurredAt
-                )->timezone('Africa/Dar_es_Salaam'),
+
+                'occurred_at' => $occurredAtTz,
 
                 'server_received_at' => now(
                     'Africa/Dar_es_Salaam'
                 ),
 
                 'latitude' => $latitude,
+
                 'longitude' => $longitude,
+
                 'accuracy' => $accuracy,
 
                 'photo_path' => $photoPath,
 
                 'device_id' => $deviceId,
 
+                /*
+                |--------------------------------------------------------------------------
+                | Important
+                |--------------------------------------------------------------------------
+                |
+                | This record has reached Laravel successfully.
+                |
+                */
+
                 'sync_status' => 'synced',
 
                 'remarks' => $remarks,
             ]);
+
+            return [
+                'attendance' => $attendance,
+                'created' => true,
+            ];
         });
+
+        /*
+        |--------------------------------------------------------------------------
+        | Return
+        |--------------------------------------------------------------------------
+        */
+
+        return [
+            'attendance' => $result['attendance']->load('employee'),
+            'created' => $result['created'],
+        ];
     }
 }

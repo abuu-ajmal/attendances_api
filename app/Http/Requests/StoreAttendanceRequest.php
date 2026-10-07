@@ -1,35 +1,22 @@
 <?php
-
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class StoreAttendanceRequest extends FormRequest
 {
-    /**
-     * Determine if the user is authorized
-     * to make this request.
-     */
     public function authorize(): bool
     {
-        return $this->user() !== null;
+        return true;
     }
 
-    /**
-     * Get the validation rules that apply
-     * to the request.
-     */
     public function rules(): array
     {
         return [
+
             'type' => [
                 'required',
-                'string',
-                Rule::in([
-                    'check_in',
-                    'check_out',
-                ]),
+                'in:check_in,check_out',
             ],
 
             'occurred_at' => [
@@ -38,19 +25,19 @@ class StoreAttendanceRequest extends FormRequest
             ],
 
             'latitude' => [
-                'required',
+                'nullable',
                 'numeric',
                 'between:-90,90',
             ],
 
             'longitude' => [
-                'required',
+                'nullable',
                 'numeric',
                 'between:-180,180',
             ],
 
             'accuracy' => [
-                'required',
+                'nullable',
                 'numeric',
                 'min:0',
             ],
@@ -63,7 +50,7 @@ class StoreAttendanceRequest extends FormRequest
             ],
 
             'device_id' => [
-                'required',
+                'nullable',
                 'string',
                 'max:255',
             ],

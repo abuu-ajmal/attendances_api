@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -33,6 +32,42 @@ class Employee extends Model
         'date_of_birth' => 'date:Y-m-d',
     ];
 
+    /*
+    |--------------------------------------------------------------------------
+    | Appended Attributes
+    |--------------------------------------------------------------------------
+    */
+
+    protected $appends = [
+        'full_name',
+    ];
+
+    /*
+    |--------------------------------------------------------------------------
+    | Full Name
+    |--------------------------------------------------------------------------
+    */
+
+    public function getFullNameAttribute(): string
+    {
+        return trim(
+            collect([
+                $this->first_name,
+                $this->middle_name,
+                $this->last_name,
+            ])
+                ->filter(
+                    fn ($name) =>
+                        $name !== null &&
+                        trim((string) $name) !== ''
+                )
+                ->map(
+                    fn ($name) =>
+                        trim((string) $name)
+                )
+                ->implode(' ')
+        );
+    }
 
     /*
     |--------------------------------------------------------------------------
@@ -47,7 +82,6 @@ class Employee extends Model
         );
     }
 
-
     /*
     |--------------------------------------------------------------------------
     | Unit
@@ -60,7 +94,6 @@ class Employee extends Model
             Unit::class
         );
     }
-
 
     /*
     |--------------------------------------------------------------------------
@@ -76,7 +109,6 @@ class Employee extends Model
         );
     }
 
-
     /*
     |--------------------------------------------------------------------------
     | Subordinates
@@ -91,7 +123,6 @@ class Employee extends Model
         );
     }
 
-
     /*
     |--------------------------------------------------------------------------
     | User Account
@@ -104,7 +135,6 @@ class Employee extends Model
             User::class
         );
     }
-
 
     /*
     |--------------------------------------------------------------------------

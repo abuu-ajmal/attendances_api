@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\UnitController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\DeviceController;
+use App\Http\Controllers\Api\AttendanceWarningController;
 
 Route::prefix('auth')->group(function () {
 
@@ -184,6 +185,18 @@ Route::middleware('auth:sanctum')->group(function () {
     | Attendance
     |--------------------------------------------------------------------------
     */
+
+    
+
+     Route::get(
+        '/attendance/my/warning',
+        [AttendanceController::class, 'myWarning']
+    );
+
+      Route::get(
+        '/attendance/my/warning-letter',
+        [AttendanceWarningController::class, 'myWarningLetter']
+    );
 
     Route::post(
         '/attendance',
